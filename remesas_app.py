@@ -1,11 +1,10 @@
 import streamlit as st
 import sqlite3
+import pandas as pd
 from datetime import datetime
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
 
-# --- Configuración de la base de datos ---
+# ---------- FUNCIONES DE BASE DE DATOS ----------
+
 def crear_tabla():
     conn = sqlite3.connect("remesas.db")
     cursor = conn.cursor()
@@ -17,7 +16,8 @@ def crear_tabla():
             email TEXT,
             pais TEXT,
             monto_usdt REAL,
-            monto_cop REAL
+            monto_cop REAL,
+            estado TEXT DEFAULT 'Pendiente'
         )
     ''')
     conn.commit()
@@ -27,9 +27,9 @@ def guardar_en_db(nombre, email, pais, monto_usdt, monto_cop):
     conn = sqlite3.connect("remesas.db")
     cursor = conn.cursor()
     cursor.execute('''
-        INSERT INTO transacciones (fecha, nombre, email, pais, monto_usdt, monto_cop)
-        VALUES (?, ?, ?, ?, ?, ?)
-    ''', (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), nombre, email, pais, monto_usdt, monto_cop))
+        INSERT INTO transacciones (fecha, nombre, email, pais, monto_usdt, monto_cop, estado)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    ''', (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), nombre, email, pais, monto_usdt, monto_cop, "Pendiente"))
     conn.commit()
     conn.close()
 
@@ -37,133 +37,71 @@ def obtener_transacciones():
     conn = sqlite3.connect("remesas.db")
     cursor = conn.cursor()
     cursor.execute("SELECT * FROM transacciones ORDER BY fecha DESC")
-    filas = cursor.fetchall()
+    data = cursor.fetchall()
     conn.close()
-    return filas
+    return data
 
-# --- Enviar correo ---
-def enviar_correo(destinatario_email, nombre, monto_usdt, monto_cop):
-    remitente = "urrutiab67@gmail.com"
-    password = "zuew psyg izxd hpdk"
+def actualizar_estado(id_transaccion, nuevo_estado):
+    conn = sqlite3.connect("remesas.db")
+    cursor = conn.cursor()
+    cursor.execute("UPDATE transacciones SET estado = ? WHERE id = ?", (nuevo_estado, id_transaccion))
+    conn.commit()
+    conn.close()
 
-    mensaje = MIMEMultipart("alternative")
-    mensaje["Subject"] = "Confirmación de Remesa"
-    mensaje["From"] = remitente
-    mensaje["To"] = destinatario_email
+# ---------- INTERFAZ ----------
 
-    texto = f"""Hola {nombre},
+st.set_page_config(page_title="Sendify - Envío de Remesas", layout="centered")
+st.title("💸 Sendify - Envío de Remesas Internacionales")
 
-Has recibido una remesa por {monto_usdt} USDT.
-Equivalente a: {monto_cop:,.0f} COP.
-
-Gracias por usar nuestra plataforma.
-"""
-    mensaje.attach(MIMEText(texto, "plain"))
-
-    try:
-        servidor = smtplib.SMTP("smtp.gmail.com", 587)
-        servidor.starttls()
-        servidor.login(remitente, password)
-        servidor.sendmail(remitente, destinatario_email, mensaje.as_string())
-        servidor.quit()
-        return True
-    except Exception as e:
-        print("Error al enviar correo:", e)
-        return False
-
-# --- Inicio de la App ---
-st.set_page_config(page_title="Plataforma de Remesas Cripto", page_icon="💸")
-st.title("💸 Plataforma de Remesas con Criptomonedas")
-st.markdown("Simula el envío de dinero usando USDT de forma rápida y económica.")
-
-# Crear tabla en DB si no existe
 crear_tabla()
 
-# Función para tasa de cambio simulada
-def obtener_tasa_cop():
-    return 4323
+menu = st.sidebar.selectbox("Selecciona una opción", ["Nueva Transacción", "Historial de Transacciones"])
 
-# Formulario
-with st.form("formulario_remesas"):
-    st.subheader("📨 Datos del destinatario")
-
+if menu == "Nueva Transacción":
+    st.header("📤 Nueva Transacción")
+    
     nombre = st.text_input("Nombre del destinatario")
     email = st.text_input("Email del destinatario")
-    pais = st.selectbox("País de destino", ["Colombia", "México", "Perú", "Venezuela", "Otro"])
-    monto = st.number_input("Monto a enviar en USDT", min_value=1.0, step=1.0)
+    pais = st.selectbox("País destino", ["Colombia", "México", "Argentina", "Perú", "Chile"])
+    monto_usdt = st.number_input("Monto en USDT a enviar", min_value=1.0)
+    
+    tasa_cambio = 3900  # puedes reemplazarlo por una tasa en tiempo real
+    monto_cop = monto_usdt * tasa_cambio
 
-    enviar = st.form_submit_button("Simular envío")
+    st.write(f"💰 Monto aproximado en moneda local (COP): {monto_cop:,.2f}")
 
-    if enviar:
-        tasa = obtener_tasa_cop()
-
-        # 1. Calcular comisión
-        if monto < 50:
-            comision = 1.0  # Comisión fija
-            tipo_comision = "Fija (1 USDT)"
+    if st.button("Enviar Remesa"):
+        if nombre and email:
+            guardar_en_db(nombre, email, pais, monto_usdt, monto_cop)
+            st.success("✅ Transacción registrada correctamente. Estado: Pendiente.")
         else:
-            comision = monto * 0.02  # 2%
-            tipo_comision = "2% del monto"
+            st.error("❗Por favor, completa todos los campos.")
 
-        monto_neto = monto - comision
-        monto_en_cop = monto_neto * tasa
+elif menu == "Historial de Transacciones":
+    st.header("📑 Historial de Transacciones")
 
-        # 2. Mostrar resultados al usuario
-        st.success("✅ Transacción simulada")
-        st.write(f"**Destinatario:** {nombre} ({email} - {pais})")
-        st.write(f"**Enviado:** {monto:.2f} USDT")
-        st.write(f"**Tipo de comisión:** {tipo_comision}")
-        st.write(f"**Comisión aplicada:** {comision:.2f} USDT")
-        st.write(f"**Monto neto a recibir:** {monto_neto:.2f} USDT")
-        st.write(f"**Tasa de cambio:** 1 USDT = {tasa:,} COP")
-        st.write(f"**Total en COP:** {monto_en_cop:,.0f} COP")
+    data = obtener_transacciones()
+    if data:
+        df = pd.DataFrame(data, columns=["ID", "Fecha", "Nombre", "Email", "País", "USDT", "COP", "Estado"])
 
-        # 3. Registrar y enviar correo
-        guardar_en_db(nombre, email, pais, monto, monto_en_cop)
-        st.success("✔️ Transacción registrada")
+        for i, row in df.iterrows():
+            with st.expander(f"📦 Transacción #{row['ID']} - {row['Nombre']} ({row['Estado']})"):
+                st.write(f"📅 Fecha: {row['Fecha']}")
+                st.write(f"✉️ Email: {row['Email']}")
+                st.write(f"🌍 País: {row['País']}")
+                st.write(f"💸 Monto USDT: {row['USDT']}")
+                st.write(f"💵 Monto Local (COP): {row['COP']:,.2f}")
+                nuevo_estado = st.selectbox(
+                    f"Cambiar estado",
+                    options=["Pendiente", "Aprobado", "Rechazado"],
+                    index=["Pendiente", "Aprobado", "Rechazado"].index(row["Estado"]),
+                    key=f"estado_{row['ID']}"
+                )
+                if nuevo_estado != row["Estado"]:
+                    if st.button(f"Actualizar estado de #{row['ID']}", key=f"btn_{row['ID']}"):
+                        actualizar_estado(row["ID"], nuevo_estado)
+                        st.success(f"✅ Estado actualizado a {nuevo_estado}. Recarga para ver el cambio.")
+    else:
+        st.info("Aún no hay transacciones registradas.")
 
-        enviado = enviar_correo(email, nombre, monto, monto_en_cop)
-        if enviado:
-            st.success("📨 Correo enviado correctamente")
-        else:
-            st.warning("⚠️ No se pudo enviar el correo")
-
-# Mostrar historial con filtros
-st.subheader("📊 Historial de Envíos")
-
-# Obtener todos los datos
-transacciones = obtener_transacciones()
-
-if transacciones:
-    import pandas as pd
-
-    df = pd.DataFrame(transacciones, columns=["ID", "Fecha", "Nombre", "Email", "País", "USDT", "COP"])
-
-    # Filtros
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        filtro_nombre = st.text_input("Filtrar por nombre")
-    with col2:
-        filtro_email = st.text_input("Filtrar por email")
-    with col3:
-        filtro_pais = st.selectbox("Filtrar por país", options=["Todos"] + sorted(df["País"].unique().tolist()))
-
-    # Aplicar filtros
-    if filtro_nombre:
-        df = df[df["Nombre"].str.contains(filtro_nombre, case=False)]
-    if filtro_email:
-        df = df[df["Email"].str.contains(filtro_email, case=False)]
-    if filtro_pais != "Todos":
-        df = df[df["País"] == filtro_pais]
-
-    st.dataframe(df, use_container_width=True)
-else:
-    st.info("Aún no hay transacciones registradas.")
-
-
-conn = sqlite3.connect("remesas.db")
-cursor = conn.cursor()
-cursor.execute("ALTER TABLE transacciones ADD COLUMN estado TEXT DEFAULT 'Pendiente'")
-conn.commit()
-conn.close()
 
