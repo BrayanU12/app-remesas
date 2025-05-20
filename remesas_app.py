@@ -3,6 +3,10 @@ import sqlite3
 import pandas as pd
 import time
 
+# Elimina remesas.db si ya existe, para evitar conflictos de esquema
+if os.path.exists("remesas.db"):
+    os.remove("remesas.db")
+
 DB_PATH = "remesas.db"
 
 def crear_tabla():
