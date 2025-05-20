@@ -1,28 +1,13 @@
 import streamlit as st
 import sqlite3
-import pandas as pd
 import os
 
-# -----------------------
-# 🔐 Configuración de usuarios
-# -----------------------
-USUARIOS = {
-    "admin": "1234",
-    "usuario": "sendify"
-}
-
-def autenticar(usuario, contrasena):
-    return USUARIOS.get(usuario) == contrasena
-
-# -----------------------
-# 📁 Configuración de la base de datos
-# -----------------------
 DB_PATH = "remesas.db"
 
+# Crear la base de datos si no existe
 def crear_db():
     conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute('''
+    conn.execute('''
         CREATE TABLE IF NOT EXISTS remesas (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             nombre TEXT,
@@ -34,78 +19,71 @@ def crear_db():
             estado TEXT
         )
     ''')
-    conn.commit()
     conn.close()
 
-def guardar_en_db(nombre, email, pais, monto_usdt, monto_cop, metodo_pago, estado):
+crear_db()
+
+# Autenticación básica
+USUARIOS = {
+    "admin": "1234",
+    "usuario": "sendify"
+}
+
+def autenticar(usuario, contrasena):
+    return USUARIOS.get(usuario) == contrasena
+
+# Autenticación de sesión
+if "autenticado" not in st.session_state:
+    st.session_state.autenticado = False
+
+if not st.session_state.autenticado:
+    st.title("Iniciar sesión")
+    usuario = st.text_input("Usuario")
+    contrasena = st.text_input("Contraseña", type="password")
+    if st.button("Ingresar"):
+        if autenticar(usuario, contrasena):
+            st.session_state.autenticado = True
+            st.experimental_rerun()
+        else:
+            st.error("Credenciales incorrectas")
+    st.stop()
+
+# Si ya está autenticado, mostramos la app
+st.title("Sendify - App de Remesas")
+
+nombre = st.text_input("Nombre del remitente")
+email = st.text_input("Email del remitente")
+pais = st.selectbox("País de destino", ["Colombia", "México", "Argentina"])
+monto_usdt = st.number_input("Monto en USDT", min_value=0.0, step=1.0)
+
+tasa_cop = 3900  # puedes luego hacer que esta tasa sea dinámica o por API
+monto_cop = monto_usdt * tasa_cop
+
+metodo_pago = st.selectbox("Método de pago", ["Nequi", "Daviplata", "Bancolombia"])
+
+if st.button("Enviar Remesa"):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute('''
         INSERT INTO remesas (nombre, email, pais, monto_usdt, monto_cop, metodo_pago, estado)
         VALUES (?, ?, ?, ?, ?, ?, ?)
-    ''', (nombre, email, pais, monto_usdt, monto_cop, metodo_pago, estado))
+    ''', (nombre, email, pais, monto_usdt, monto_cop, metodo_pago, "Pago confirmado"))
     conn.commit()
     conn.close()
+    st.success("Remesa registrada correctamente")
 
-def mostrar_registros():
-    conn = sqlite3.connect(DB_PATH)
-    df = pd.read_sql_query("SELECT * FROM remesas", conn)
-    conn.close()
-    return df
+# Mostrar historial
+st.subheader("Historial de Remesas")
+conn = sqlite3.connect(DB_PATH)
+remesas = conn.execute("SELECT nombre, email, pais, monto_usdt, monto_cop, metodo_pago, estado FROM remesas").fetchall()
+conn.close()
 
-if not os.path.exists(DB_PATH):
-    crear_db()
+if remesas:
+    for r in remesas:
+        st.write(f"👤 {r[0]} ({r[1]}) - {r[2]}")
+        st.write(f"💸 {r[3]} USDT = {r[4]} COP")
+        st.write(f"🏦 Método: {r[5]} | Estado: {r[6]}")
+        st.markdown("---")
+else:
+    st.info("No hay remesas registradas aún.")
 
-# -----------------------
-# 🔐 Autenticación
-# -----------------------
-if "autenticado" not in st.session_state:
-    st.session_state.autenticado = False
-
-if not st.session_state.autenticado:
-    st.title("🔐 Iniciar Sesión en Sendify")
-    usuario = st.text_input("Usuario")
-    contrasena = st.text_input("Contraseña", type="password")
-    if st.button("Iniciar sesión"):
-        if autenticar(usuario, contrasena):
-            st.session_state.autenticado = True
-            st.success("✅ Autenticación exitosa.")
-            st.experimental_rerun()
-        else:
-            st.error("❌ Usuario o contraseña incorrectos.")
-    st.stop()
-
-# -----------------------
-# 🌐 Aplicación principal (una vez autenticado)
-# -----------------------
-st.title("💸 Plataforma de Envío de Remesas - Sendify")
-
-st.header("📨 Enviar Dinero")
-with st.form(key="formulario_remesas"):
-    nombre = st.text_input("Nombre completo")
-    email = st.text_input("Correo electrónico")
-    pais = st.selectbox("País de destino", ["Colombia", "México", "Argentina", "Perú"])
-    monto_usdt = st.number_input("Monto en USDT", min_value=1.0, format="%.2f")
-    metodo_pago = st.selectbox("Método de pago", ["Nequi", "Bancolombia", "Daviplata"])
-
-    tasa_conversion = 3900  # Simulación
-    monto_cop = monto_usdt * tasa_conversion
-
-    st.markdown(f"💱 Monto a entregar: **{monto_cop:,.0f} COP**")
-
-    boton_enviar = st.form_submit_button("Enviar")
-
-    if boton_enviar:
-        guardar_en_db(nombre, email, pais, monto_usdt, monto_cop, metodo_pago, "Pago confirmado")
-        st.success("✅ Transacción registrada exitosamente.")
-        st.info("🔒 Estado actual: Pago confirmado.")
-
-st.divider()
-st.subheader("📊 Historial de Transacciones")
-df_registros = mostrar_registros()
-st.dataframe(df_registros, use_container_width=True)
-
-# 🔓 Botón para cerrar sesión
-if st.button("Cerrar sesión"):
-    st.session_state.autenticado = False
-    st.experimental_rerun()
