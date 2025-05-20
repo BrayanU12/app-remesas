@@ -70,7 +70,7 @@ def main():
         if st.button("Ingresar"):
             if autenticar(usuario, contraseña):
                 st.session_state.autenticado = True
-                st.experimental_rerun()
+                st.rerun()
             else:
                 st.error("Usuario o contraseña incorrectos")
         return
@@ -106,7 +106,7 @@ def main():
             if st.button(f"Guardar estado #{id}", key=f"guardar_{id}"):
                 actualizar_estado(id, nuevo_estado)
                 st.success(f"Estado actualizado a: {nuevo_estado}")
-                st.experimental_rerun()
+                st.rerun()
 
 if __name__ == "__main__":
     if not os.path.exists(DB_PATH):
