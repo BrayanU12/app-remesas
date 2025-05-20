@@ -2,11 +2,9 @@ import streamlit as st
 import sqlite3
 import pandas as pd
 import time
-import os
 
 DB_PATH = "remesas.db"
 
-# Crear tabla si no existe
 def crear_tabla():
     with sqlite3.connect(DB_PATH) as conn:
         conn.execute('''
@@ -22,13 +20,18 @@ def crear_tabla():
             )
         ''')
 
-# Guardar en base de datos
 def guardar_en_db(nombre, email, pais, monto_usdt, monto_cop, metodo_pago, estado):
     with sqlite3.connect(DB_PATH) as conn:
         conn.execute('''
             INSERT INTO remesas (nombre, email, pais, monto_usdt, monto_cop, metodo_pago, estado)
             VALUES (?, ?, ?, ?, ?, ?, ?)
         ''', (nombre, email, pais, monto_usdt, monto_cop, metodo_pago, estado))
+
+def actualizar_estado_remesa(remesa_id, nuevo_estado):
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.execute('''
+            UPDATE remesas SET estado = ? WHERE id = ?
+        ''', (nuevo_estado, remesa_id))
 
 st.title("📤 Sendify - Envío de Remesas Simulado")
 
@@ -43,26 +46,37 @@ with st.form("formulario_remesa"):
 
     submitted = st.form_submit_button("Iniciar pago")
 
-# Simular procesamiento de pago
 if submitted:
     if not nombre or not email or monto_usdt <= 0:
-        st.warning("⚠️ Por favor completa todos los campos antes de iniciar el pago.")
+        st.warning("⚠️ Por favor completa todos los campos.")
     else:
         with st.spinner("🔄 Procesando pago..."):
-            time.sleep(3)  # Simula tiempo de pago
-        st.success(f"✅ Pago por {metodo_pago} recibido.")
+            time.sleep(2)
+        tasa = 4000  # Simula tasa de cambio
+        monto_cop = monto_usdt * tasa
+
+        # Guardar con estado "Pago confirmado"
+        guardar_en_db(nombre, email, pais, monto_usdt, monto_cop, metodo_pago, "Pago confirmado")
+        st.success(f"✅ Pago confirmado. Listo para aprobar la remesa.")
+        
+        # Mostrar botón de aprobación solo si se acaba de confirmar
         aprobar = st.button("✅ Aprobar y enviar remesa")
         if aprobar:
-            tasa = 4000  # Simula TRM
-            monto_cop = monto_usdt * tasa
-            guardar_en_db(nombre, email, pais, monto_usdt, monto_cop, metodo_pago, "Aprobado")
-            st.success(f"💰 Remesa de {monto_cop:,.0f} COP enviada exitosamente a {pais}.")
+            # Buscar el último registro (más reciente)
+            with sqlite3.connect(DB_PATH) as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT id FROM remesas ORDER BY id DESC LIMIT 1")
+                remesa_id = cursor.fetchone()[0]
+            actualizar_estado_remesa(remesa_id, "Remesa aprobada")
+            st.success("💰 Remesa aprobada y enviada con éxito.")
 
-# Mostrar historial
+# Historial con estado
 if st.checkbox("📄 Ver historial de remesas"):
     with sqlite3.connect(DB_PATH) as conn:
-        df = pd.read_sql_query("SELECT * FROM remesas", conn)
+        df = pd.read_sql_query("SELECT * FROM remesas ORDER BY id DESC", conn)
         if not df.empty:
+            df['monto_cop'] = df['monto_cop'].map(lambda x: f"${x:,.0f}")
             st.dataframe(df)
         else:
-            st.info("⚠️ Aún no hay remesas registradas.")
+            st.info("Aún no hay remesas registradas.")
+
