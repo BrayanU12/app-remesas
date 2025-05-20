@@ -1,66 +1,68 @@
 import streamlit as st
-import pandas as pd
 import sqlite3
+import pandas as pd
+import time
 import os
 
-# Crear conexión a la base de datos
 DB_PATH = "remesas.db"
 
-def crear_db():
+# Crear tabla si no existe
+def crear_tabla():
     with sqlite3.connect(DB_PATH) as conn:
-        cursor = conn.cursor()
-        cursor.execute('''
+        conn.execute('''
             CREATE TABLE IF NOT EXISTS remesas (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 nombre TEXT,
                 email TEXT,
                 pais TEXT,
                 monto_usdt REAL,
-                monto_cop REAL
+                monto_cop REAL,
+                metodo_pago TEXT,
+                estado TEXT
             )
         ''')
-        conn.commit()
 
-def guardar_en_db(nombre, email, pais, monto_usdt, monto_cop):
+# Guardar en base de datos
+def guardar_en_db(nombre, email, pais, monto_usdt, monto_cop, metodo_pago, estado):
     with sqlite3.connect(DB_PATH) as conn:
-        cursor = conn.cursor()
-        cursor.execute('''
-            INSERT INTO remesas (nombre, email, pais, monto_usdt, monto_cop)
-            VALUES (?, ?, ?, ?, ?)
-        ''', (nombre, email, pais, monto_usdt, monto_cop))
-        conn.commit()
+        conn.execute('''
+            INSERT INTO remesas (nombre, email, pais, monto_usdt, monto_cop, metodo_pago, estado)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        ''', (nombre, email, pais, monto_usdt, monto_cop, metodo_pago, estado))
 
-# Crear base de datos si no existe
-crear_db()
+st.title("📤 Sendify - Envío de Remesas Simulado")
 
-# Interfaz Streamlit
-st.title("📤 Plataforma de Envío de Remesas - Sendify")
+crear_tabla()
 
-st.subheader("🧾 Ingresa los datos de la remesa")
+with st.form("formulario_remesa"):
+    nombre = st.text_input("👤 Nombre completo")
+    email = st.text_input("📧 Correo electrónico")
+    pais = st.selectbox("🌍 País destino", ["Colombia", "México", "Argentina", "Perú"])
+    monto_usdt = st.number_input("💸 Monto a enviar (USDT)", min_value=0.0, step=0.5)
+    metodo_pago = st.selectbox("💳 Método de pago", ["Binance Pay", "MetaMask", "PayPal", "Otro"])
 
-with st.form("remesa_form"):
-    nombre = st.text_input("Nombre del remitente")
-    email = st.text_input("Email del remitente")
-    pais = st.selectbox("País receptor", ["Colombia", "México", "Perú", "Argentina"])
-    monto_usdt = st.number_input("Monto a enviar (USDT)", min_value=0.0, format="%.2f")
+    submitted = st.form_submit_button("Iniciar pago")
 
-    tasa_cop = 3800
-    monto_cop = monto_usdt * tasa_cop
+# Simular procesamiento de pago
+if submitted:
+    if not nombre or not email or monto_usdt <= 0:
+        st.warning("⚠️ Por favor completa todos los campos antes de iniciar el pago.")
+    else:
+        with st.spinner("🔄 Procesando pago..."):
+            time.sleep(3)  # Simula tiempo de pago
+        st.success(f"✅ Pago por {metodo_pago} recibido.")
+        aprobar = st.button("✅ Aprobar y enviar remesa")
+        if aprobar:
+            tasa = 4000  # Simula TRM
+            monto_cop = monto_usdt * tasa
+            guardar_en_db(nombre, email, pais, monto_usdt, monto_cop, metodo_pago, "Aprobado")
+            st.success(f"💰 Remesa de {monto_cop:,.0f} COP enviada exitosamente a {pais}.")
 
-    st.markdown(f"💱 Tasa estimada: 1 USDT = {tasa_cop} COP")
-    st.markdown(f"💰 Recibirás aproximadamente: **{monto_cop:,.2f} COP**")
-
-    enviar = st.form_submit_button("Enviar remesa")
-
-    if enviar:
-        if nombre and email and monto_usdt > 0:
-            guardar_en_db(nombre, email, pais, monto_usdt, monto_cop)
-            st.success("✅ Remesa enviada correctamente.")
-        else:
-            st.error("❌ Por favor completa todos los campos.")
-
-# Mostrar datos
+# Mostrar historial
 if st.checkbox("📄 Ver historial de remesas"):
     with sqlite3.connect(DB_PATH) as conn:
         df = pd.read_sql_query("SELECT * FROM remesas", conn)
-        st.dataframe(df)
+        if not df.empty:
+            st.dataframe(df)
+        else:
+            st.info("⚠️ Aún no hay remesas registradas.")
