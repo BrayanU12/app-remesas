@@ -160,3 +160,10 @@ if transacciones:
 else:
     st.info("Aún no hay transacciones registradas.")
 
+
+conn = sqlite3.connect("remesas.db")
+cursor = conn.cursor()
+cursor.execute("ALTER TABLE transacciones ADD COLUMN estado TEXT DEFAULT 'Pendiente'")
+conn.commit()
+conn.close()
+
