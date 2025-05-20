@@ -43,7 +43,7 @@ if not st.session_state.autenticado:
     if st.button("Ingresar"):
         if autenticar(usuario, contrasena):
             st.session_state.autenticado = True
-            st.experimental_rerun()
+            st.rerun()
         else:
             st.error("Credenciales incorrectas")
     st.stop()
