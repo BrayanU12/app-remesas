@@ -1,138 +1,169 @@
 import streamlit as st
 import sqlite3
-import os
 import pandas as pd
+import os
 import smtplib
-from email.message import EmailMessage
-
-# Configuración del email
-EMAIL_ORIGEN = "urrutiab67@gmail.com"
-EMAIL_APP_PASSWORD = "mgpr bgwa jrwg njnr"
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 
 DB_PATH = "remesas.db"
 
-# Inicializar DB si no existe
+# Crear la base de datos si no existe
 def init_db():
-    with sqlite3.connect(DB_PATH) as conn:
-        cursor = conn.cursor()
-        cursor.execute('''CREATE TABLE IF NOT EXISTS remesas (
-                            id INTEGER PRIMARY KEY AUTOINCREMENT,
-                            nombre TEXT NOT NULL,
-                            correo TEXT NOT NULL,
-                            monto REAL NOT NULL,
-                            estado TEXT DEFAULT 'Pendiente')''')
-        cursor.execute('''CREATE TABLE IF NOT EXISTS usuarios (
-                            id INTEGER PRIMARY KEY AUTOINCREMENT,
-                            username TEXT NOT NULL,
-                            password TEXT NOT NULL)''')
-        conn.commit()
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS remesas (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            nombre TEXT,
+            email TEXT,
+            pais TEXT,
+            monto_usdt REAL,
+            monto_cop REAL,
+            metodo_pago TEXT,
+            estado TEXT
+        )
+    ''')
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS usuarios (
+            username TEXT,
+            password TEXT
+        )
+    ''')
+    conn.commit()
+    conn.close()
+
+# Agregar usuario admin por defecto
+def crear_usuario_admin():
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM usuarios WHERE username = 'admin'")
+    if not cursor.fetchone():
+        cursor.execute("INSERT INTO usuarios (username, password) VALUES (?, ?)", ("admin", "admin"))
+    conn.commit()
+    conn.close()
+
+# Guardar remesa
+def guardar_en_db(nombre, email, pais, monto_usdt, monto_cop, metodo_pago, estado):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute('''
+        INSERT INTO remesas (nombre, email, pais, monto_usdt, monto_cop, metodo_pago, estado)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    ''', (nombre, email, pais, monto_usdt, monto_cop, metodo_pago, estado))
+    conn.commit()
+    conn.close()
 
 # Autenticación
 def autenticar_usuario(username, password):
-    with sqlite3.connect(DB_PATH) as conn:
-        cursor = conn.cursor()
-        cursor.execute("SELECT * FROM usuarios WHERE username = ? AND password = ?", (username, password))
-        return cursor.fetchone() is not None
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM usuarios WHERE username = ? AND password = ?", (username, password))
+    resultado = cursor.fetchone()
+    conn.close()
+    return resultado is not None
 
-# Insertar nueva remesa
-def insertar_remesa(nombre, correo, monto):
-    with sqlite3.connect(DB_PATH) as conn:
-        cursor = conn.cursor()
-        cursor.execute("INSERT INTO remesas (nombre, correo, monto) VALUES (?, ?, ?)", (nombre, correo, monto))
-        conn.commit()
-
-# Obtener todas las remesas
+# Obtener remesas
 def obtener_remesas():
-    with sqlite3.connect(DB_PATH) as conn:
-        return pd.read_sql_query("SELECT * FROM remesas", conn)
+    conn = sqlite3.connect(DB_PATH)
+    df = pd.read_sql_query("SELECT * FROM remesas", conn)
+    conn.close()
+    return df
 
-# Actualizar estado de remesa
-def actualizar_estado_remesa(id_remesa, nuevo_estado):
-    with sqlite3.connect(DB_PATH) as conn:
-        cursor = conn.cursor()
-        cursor.execute("UPDATE remesas SET estado = ? WHERE id = ?", (nuevo_estado, id_remesa))
-        conn.commit()
+# Actualizar estado
+def actualizar_estado_remesa(remesa_id, nuevo_estado):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("UPDATE remesas SET estado = ? WHERE id = ?", (nuevo_estado, remesa_id))
+    conn.commit()
+    conn.close()
 
-# Enviar correo de notificación
-def enviar_correo_estado(email_destino, nombre, nuevo_estado, id_remesa):
+# Enviar correo
+def enviar_correo(destinatario, asunto, mensaje):
+    remitente = "urrutiab67@gmail.com"  # Cambia esto
+    contrasena = "mgpr bgwa jrwg njnr"     # Cambia esto
+
+    msg = MIMEMultipart()
+    msg['From'] = remitente
+    msg['To'] = destinatario
+    msg['Subject'] = asunto
+
+    msg.attach(MIMEText(mensaje, 'plain'))
+
     try:
-        msg = EmailMessage()
-        msg["Subject"] = f"Actualización de tu remesa #{id_remesa}"
-        msg["From"] = EMAIL_ORIGEN
-        msg["To"] = email_destino
-        msg.set_content(f"""
-Hola {nombre},
-
-Tu remesa #{id_remesa} ha sido actualizada.
-
-Nuevo estado: {nuevo_estado}
-
-Gracias por usar nuestra plataforma.
-
-Saludos,
-Equipo de Remesas
-        """)
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as smtp:
-            smtp.login(EMAIL_ORIGEN, EMAIL_APP_PASSWORD)
-            smtp.send_message(msg)
+        servidor = smtplib.SMTP('smtp.gmail.com', 587)
+        servidor.starttls()
+        servidor.login(remitente, contrasena)
+        servidor.sendmail(remitente, destinatario, msg.as_string())
+        servidor.quit()
     except Exception as e:
-        print(f"Error al enviar el correo: {e}")
+        st.warning(f"No se pudo enviar el correo: {e}")
 
-# UI - Panel Admin
+# Panel admin
 def mostrar_panel_admin():
-    st.title("Panel de Administración")
+    st.header("Panel de Administración")
+
     df = obtener_remesas()
-    for _, row in df.iterrows():
-        id, nombre, email, monto, estado = row
-        st.write(f"### Remesa #{id}")
-        st.write(f"**Nombre:** {nombre}  |  **Email:** {email}  |  **Monto:** ${monto}  |  **Estado actual:** {estado}")
-        nuevo_estado = st.selectbox(
-            f"Actualizar estado (Remesa #{id})",
-            ["Pendiente", "Aprobado", "Rechazado"],
-            index=["Pendiente", "Aprobado", "Rechazado"].index(estado),
-            key=f"estado_{id}"
-        )
-        if st.button(f"Actualizar estado #{id}"):
+    st.dataframe(df)
+
+    for index, row in df.iterrows():
+        id = row['id']
+        estado = row['estado']
+        email = row['email']
+        nombre = row['nombre']
+
+        nuevo_estado = st.selectbox(f"Actualizar estado (Remesa #{id})", ["Pendiente", "Aprobado", "Rechazado"],
+                                    index=["Pendiente", "Aprobado", "Rechazado"].index(estado),
+                                    key=f"estado_{id}")
+
+        if st.button(f"Actualizar estado", key=f"btn_{id}"):
             actualizar_estado_remesa(id, nuevo_estado)
-            enviar_correo_estado(email, nombre, nuevo_estado, id)
-            st.success("Estado actualizado y correo enviado correctamente.")
-            st.rerun()
+            st.success(f"Estado actualizado para remesa #{id}")
+            enviar_correo(email, "Estado de tu remesa actualizado",
+                          f"Hola {nombre}, tu remesa ha sido actualizada al estado: {nuevo_estado}")
 
-    if st.button("Descargar base de datos en CSV"):
+    # Descargar CSV
+    if not df.empty:
         csv = df.to_csv(index=False).encode('utf-8')
-        st.download_button("Descargar CSV", csv, "remesas.csv", "text/csv")
+        st.download_button("Descargar base de datos (CSV)", csv, "remesas.csv", "text/csv")
 
-# UI - App principal
+# App principal
 def main():
-    st.set_page_config(page_title="App de Remesas")
-    st.sidebar.title("Menú")
-    menu = st.sidebar.selectbox("Selecciona una opción", ["Enviar Remesa", "Administrador"])
+    st.title("App de Remesas")
 
-    if menu == "Enviar Remesa":
-        st.title("Enviar Remesa")
+    menu = ["Usuario", "Administrador"]
+    eleccion = st.sidebar.selectbox("Selecciona vista", menu)
+
+    if eleccion == "Usuario":
+        st.subheader("Formulario de Envío de Remesas")
         nombre = st.text_input("Nombre completo")
-        correo = st.text_input("Correo electrónico")
-        monto = st.number_input("Monto a enviar", min_value=1.0)
-        if st.button("Enviar"):
-            insertar_remesa(nombre, correo, monto)
-            st.success("Remesa enviada exitosamente.")
+        email = st.text_input("Correo electrónico")
+        pais = st.selectbox("País de destino", ["Colombia", "Venezuela", "Perú", "Otro"])
+        monto_usdt = st.number_input("Monto en USDT", min_value=1.0)
+        tasa_cambio = 4000  # Ejemplo
+        monto_cop = monto_usdt * tasa_cambio
+        st.write(f"Monto aproximado en COP: ${monto_cop:,.2f}")
 
-    elif menu == "Administrador":
-        st.title("Inicio de Sesión Administrador")
+        metodo_pago = st.selectbox("Método de pago", ["Nequi", "Daviplata", "Bancolombia", "Efectivo"])
+
+        if st.button("Enviar remesa"):
+            guardar_en_db(nombre, email, pais, monto_usdt, monto_cop, metodo_pago, "Pendiente")
+            st.success("Remesa registrada correctamente")
+
+    elif eleccion == "Administrador":
+        st.subheader("Ingreso administrador")
         usuario = st.text_input("Usuario")
         clave = st.text_input("Contraseña", type="password")
         if st.button("Ingresar"):
             if autenticar_usuario(usuario, clave):
-                st.session_state["admin_autenticado"] = True
-                st.rerun()
+                mostrar_panel_admin()
             else:
-                st.error("Credenciales incorrectas.")
-
-        if st.session_state.get("admin_autenticado"):
-            mostrar_panel_admin()
+                st.error("Credenciales incorrectas")
 
 if __name__ == "__main__":
     init_db()
+    crear_usuario_admin()
     main()
+
 
 
