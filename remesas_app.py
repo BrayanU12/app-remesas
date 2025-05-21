@@ -4,35 +4,34 @@ import os
 
 DB_PATH = "remesas.db"
 
-# --------------------- BASE DE DATOS ---------------------
-
-def crear_base_datos():
+# Crear base de datos y tablas si no existen
+def inicializar_db():
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
 
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS remesas (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        nombre TEXT,
-        email TEXT,
-        pais TEXT,
-        monto_usdt REAL,
-        monto_cop REAL,
-        metodo_pago TEXT,
-        estado TEXT
-    )
-    """)
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS remesas (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            nombre TEXT,
+            email TEXT,
+            pais TEXT,
+            monto_usdt REAL,
+            monto_cop REAL,
+            metodo_pago TEXT,
+            estado TEXT DEFAULT 'Pendiente'
+        )
+    ''')
 
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS usuarios (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        username TEXT,
-        password TEXT
-    )
-    """)
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS usuarios (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT,
+            password TEXT
+        )
+    ''')
 
-    # Crear usuario admin por defecto
-    cursor.execute("SELECT * FROM usuarios WHERE username = ?", ('admin',))
+    # Crear un usuario admin si no existe
+    cursor.execute("SELECT * FROM usuarios WHERE username = 'admin'")
     if not cursor.fetchone():
         cursor.execute("INSERT INTO usuarios (username, password) VALUES (?, ?)", ('admin', 'admin123'))
 
@@ -41,8 +40,7 @@ def crear_base_datos():
 
 def guardar_en_db(nombre, email, pais, monto_usdt, monto_cop, metodo_pago, estado):
     conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute('''
+    conn.execute('''
         INSERT INTO remesas (nombre, email, pais, monto_usdt, monto_cop, metodo_pago, estado)
         VALUES (?, ?, ?, ?, ?, ?, ?)
     ''', (nombre, email, pais, monto_usdt, monto_cop, metodo_pago, estado))
@@ -53,9 +51,9 @@ def obtener_remesas():
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute("SELECT * FROM remesas")
-    datos = cursor.fetchall()
+    data = cursor.fetchall()
     conn.close()
-    return datos
+    return data
 
 def actualizar_estado_remesa(remesa_id, nuevo_estado):
     conn = sqlite3.connect(DB_PATH)
@@ -72,93 +70,78 @@ def autenticar_usuario(username, password):
     conn.close()
     return resultado is not None
 
-# --------------------- PÁGINAS ---------------------
-
-def mostrar_formulario_remesas():
-    st.subheader("Enviar remesa")
-
-    nombre = st.text_input("Nombre completo")
-    email = st.text_input("Email")
-    pais = st.selectbox("País de destino", ["Colombia", "México", "Argentina", "Otro"])
-    monto_usdt = st.number_input("Monto a enviar (USDT)", min_value=1.0, step=1.0)
-    metodo_pago = st.selectbox("Método de pago", ["Billetera USDT", "Binance Pay", "Otro"])
-
-    tasa = 3900  # Simulación
-    monto_cop = monto_usdt * tasa
-    st.write(f"El destinatario recibirá aproximadamente: **${monto_cop:,.2f} COP**")
-
-    if st.button("Enviar remesa"):
-        guardar_en_db(nombre, email, pais, monto_usdt, monto_cop, metodo_pago, "Pendiente")
-        st.success("Remesa registrada exitosamente")
-
 def mostrar_panel_admin():
-    st.subheader("Panel de administración")
+    st.subheader("Panel de Administración")
+
     remesas = obtener_remesas()
-
-    if not remesas:
-        st.info("No hay remesas registradas.")
-        return
-
     for remesa in remesas:
-        id, nombre, email, pais, usdt, cop, metodo, estado = remesa
-        st.write(f"### Remesa #{id}")
-        st.write(f"- **Nombre:** {nombre}")
-        st.write(f"- **Email:** {email}")
-        st.write(f"- **País:** {pais}")
-        st.write(f"- **Monto USDT:** {usdt}")
-        st.write(f"- **Monto COP:** {cop}")
-        st.write(f"- **Método de pago:** {metodo}")
-        st.write(f"- **Estado actual:** {estado}")
+        id, nombre, email, pais, monto_usdt, monto_cop, metodo_pago, estado = remesa
+        with st.expander(f"Remesa #{id} - {nombre} ({estado})"):
+            st.write(f"Correo: {email}")
+            st.write(f"País: {pais}")
+            st.write(f"Monto USDT: {monto_usdt}")
+            st.write(f"Monto en COP: {monto_cop}")
+            st.write(f"Método de pago: {metodo_pago}")
+            nuevo_estado = st.selectbox(f"Actualizar estado (Remesa #{id})", ["Pendiente", "Aprobado", "Rechazado"], index=["Pendiente", "Aprobado", "Rechazado"].index(estado), key=f"estado_{id}")
+            if st.button(f"Actualizar estado #{id}"):
+                actualizar_estado_remesa(id, nuevo_estado)
+                st.success("Estado actualizado")
+                st.session_state.actualizado = True
 
-        estados = ["Pendiente", "Aprobado", "Rechazado"]
-        if estado in estados:
-            index_estado = estados.index(estado)
-        else:
-            index_estado = 0
-
-        nuevo_estado = st.selectbox(
-            f"Actualizar estado (Remesa #{id})",
-            estados,
-            index=index_estado,
-            key=f"estado_{id}"
-        )
-
-        if st.button(f"Actualizar estado #{id}"):
-            actualizar_estado_remesa(id, nuevo_estado)
-            st.success("Estado actualizado")
-            st.experimental_rerun()
-
-# --------------------- APP PRINCIPAL ---------------------
+    # Refrescar solo después de actualizar
+    if st.session_state.get("actualizado", False):
+        st.session_state.actualizado = False
+        st.experimental_rerun()
 
 def main():
-    st.title("Sendify – Plataforma de Envío de Remesas")
+    st.set_page_config(page_title="App de Remesas", layout="centered")
 
-    crear_base_datos()
+    inicializar_db()
 
-    menu = ["Inicio", "Administrador"]
-    opcion = st.sidebar.selectbox("Navegación", menu)
+    if "autenticado" not in st.session_state:
+        st.session_state.autenticado = False
 
-    if opcion == "Inicio":
-        mostrar_formulario_remesas()
+    st.title("Remesas USDT a Colombia")
+
+    menu = ["Enviar Remesa", "Administrador"]
+    opcion = st.sidebar.radio("Menú", menu)
+
+    if opcion == "Enviar Remesa":
+        st.subheader("Formulario de Remesa")
+        nombre = st.text_input("Nombre completo")
+        email = st.text_input("Correo electrónico")
+        pais = st.selectbox("País desde donde envías", ["Chile", "Perú", "México", "España", "EE.UU", "Otro"])
+        monto_usdt = st.number_input("Monto a enviar (USDT)", min_value=0.0)
+        tasa_cop = 3900  # Tasa fija por ahora
+        monto_cop = monto_usdt * tasa_cop
+        st.write(f"Recibirás aproximadamente: ${monto_cop:,.0f} COP")
+
+        metodo_pago = st.selectbox("Método de pago preferido", ["Nequi", "Daviplata", "Bancolombia", "Otro"])
+
+        if st.button("Enviar remesa"):
+            if nombre and email and monto_usdt > 0:
+                guardar_en_db(nombre, email, pais, monto_usdt, monto_cop, metodo_pago, "Pendiente")
+                st.success("¡Remesa registrada exitosamente! Te contactaremos pronto.")
+            else:
+                st.error("Por favor completa todos los campos.")
 
     elif opcion == "Administrador":
-        st.subheader("Iniciar sesión")
+        st.subheader("Login de Administrador")
+        usuario = st.text_input("Usuario")
+        clave = st.text_input("Contraseña", type="password")
 
-        if "autenticado" not in st.session_state:
-            st.session_state.autenticado = False
+        if st.button("Ingresar"):
+            if autenticar_usuario(usuario, clave):
+                st.session_state.autenticado = True
+                st.success("Inicio de sesión exitoso")
+                st.session_state.mostrar_admin = True
+            else:
+                st.error("Credenciales incorrectas")
 
-        if not st.session_state.autenticado:
-            usuario = st.text_input("Usuario")
-            clave = st.text_input("Contraseña", type="password")
-            if st.button("Ingresar"):
-                if autenticar_usuario(usuario, clave):
-                    st.session_state.autenticado = True
-                    st.experimental_rerun()
-                else:
-                    st.error("Credenciales incorrectas")
-        else:
+        if st.session_state.get("autenticado", False) and st.session_state.get("mostrar_admin", False):
             mostrar_panel_admin()
 
 if __name__ == "__main__":
     main()
+
 
