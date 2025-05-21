@@ -123,8 +123,7 @@ def mostrar_panel_admin():
                           f"Hola {nombre}, tu remesa ha sido actualizada al estado: {nuevo_estado}")
             st.success(f"Estado actualizado para remesa #{id}")
             st.session_state["refrescar_despues_de_estado"] = True
-        return  # Salimos de la función para evitar conflictos
-
+        
     # Descargar CSV
     if not df.empty:
         csv = df.to_csv(index=False).encode('utf-8')
