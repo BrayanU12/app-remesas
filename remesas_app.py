@@ -122,7 +122,8 @@ def mostrar_panel_admin():
             enviar_correo(email, "Estado de tu remesa actualizado",
                           f"Hola {nombre}, tu remesa ha sido actualizada al estado: {nuevo_estado}")
             st.success(f"Estado actualizado para remesa #{id}")
-            st.experimental_rerun()  # Refresca después del cambio para que el botón no se vuelva a presionar
+            st.session_state["refrescar_despues_de_estado"] = True
+        return  # Salimos de la función para evitar conflictos
 
     # Descargar CSV
     if not df.empty:
