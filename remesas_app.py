@@ -80,8 +80,8 @@ def actualizar_estado_remesa(remesa_id, nuevo_estado):
 
 # Enviar correo
 def enviar_correo(destinatario, asunto, mensaje):
-    remitente = "urrutiab67@gmail.com"  # Cambia esto por tu correo
-    contrasena = "mgpr bgwa jrwg njnr"  # Cambia esto por tu contraseña de app
+    remitente = "urrutiab67@gmail.com"  # Cambiar por tu correo real
+    contrasena = "mgpr bgwa jrwg njnr"  # Cambiar por tu contraseña o App Password
 
     msg = MIMEMultipart()
     msg['From'] = remitente
@@ -106,36 +106,32 @@ def mostrar_panel_admin():
 
     for index, row in df.iterrows():
         id = row['id']
-        estado = row['estado']
+        estado_actual = row['estado']
         email = row['email']
         nombre = row['nombre']
 
-        nuevo_estado = st.selectbox(f"Actualizar estado (Remesa #{id})", ["Pendiente", "Aprobado", "Rechazado"],
-                                    index=["Pendiente", "Aprobado", "Rechazado"].index(estado),
-                                    key=f"estado_{id}")
+        nuevo_estado = st.selectbox(
+            f"Actualizar estado (Remesa #{id})",
+            ["Pendiente", "Aprobado", "Rechazado"],
+            index=["Pendiente", "Aprobado", "Rechazado"].index(estado_actual),
+            key=f"estado_{id}"
+        )
 
         if st.button(f"Actualizar estado", key=f"btn_{id}"):
             actualizar_estado_remesa(id, nuevo_estado)
-            st.success(f"Estado actualizado para remesa #{id}")
             enviar_correo(email, "Estado de tu remesa actualizado",
                           f"Hola {nombre}, tu remesa ha sido actualizada al estado: {nuevo_estado}")
+            st.success(f"Estado actualizado para remesa #{id}")
+            st.experimental_rerun()  # Refresca después del cambio para que el botón no se vuelva a presionar
 
     # Descargar CSV
     if not df.empty:
         csv = df.to_csv(index=False).encode('utf-8')
         st.download_button("Descargar base de datos (CSV)", csv, "remesas.csv", "text/csv")
 
-    st.markdown("---")
-    if st.button("Cerrar sesión"):
-        st.session_state.logged_in = False
-        st.experimental_rerun()
-
 # App principal
 def main():
     st.title("App de Remesas")
-
-    if "logged_in" not in st.session_state:
-        st.session_state.logged_in = False
 
     menu = ["Usuario", "Administrador"]
     eleccion = st.sidebar.selectbox("Selecciona vista", menu)
@@ -146,9 +142,10 @@ def main():
         email = st.text_input("Correo electrónico")
         pais = st.selectbox("País de destino", ["Colombia", "Venezuela", "Perú", "Otro"])
         monto_usdt = st.number_input("Monto en USDT", min_value=1.0)
-        tasa_cambio = 4000  # Tasa fija por ahora
+        tasa_cambio = 4000  # Tasa ejemplo
         monto_cop = monto_usdt * tasa_cambio
         st.write(f"Monto aproximado en COP: ${monto_cop:,.2f}")
+
         metodo_pago = st.selectbox("Método de pago", ["Nequi", "Daviplata", "Bancolombia", "Efectivo"])
 
         if st.button("Enviar remesa"):
@@ -156,19 +153,22 @@ def main():
             st.success("Remesa registrada correctamente")
 
     elif eleccion == "Administrador":
-        st.subheader("Ingreso administrador")
+        if "logged_in" not in st.session_state:
+            st.session_state.logged_in = False
 
         if not st.session_state.logged_in:
+            st.subheader("Ingreso administrador")
             usuario = st.text_input("Usuario")
             clave = st.text_input("Contraseña", type="password")
+
             if st.button("Ingresar"):
                 if autenticar_usuario(usuario, clave):
                     st.session_state.logged_in = True
                     st.success("Autenticado correctamente")
-                    st.experimental_rerun()
                 else:
                     st.error("Credenciales incorrectas")
-        else:
+
+        if st.session_state.logged_in:
             mostrar_panel_admin()
 
 if __name__ == "__main__":
